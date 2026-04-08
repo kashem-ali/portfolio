@@ -1,469 +1,436 @@
-document.addEventListener("contextmenu", (event) => event.preventDefault());
+(async () => {
+  const THEME_KEY = "portfolio-theme-preference";
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: light)");
+  const themeButtons = [...document.querySelectorAll(".theme-btn[data-theme-value]")];
 
-// this block sets up hover and click events for each video preview, and animates overlay text
-document.querySelectorAll(".video-wrapper").forEach((wrapper) => {
-  const video = wrapper.querySelector("video");
-  const overlayText = wrapper.querySelector(".overlay-text");
-  const title = wrapper.getAttribute("data-title");
-  if (overlayText && title) {
-    const characters = [...title];
-    overlayText.innerHTML = "";
-    characters.forEach((char, i) => {
-      const span = document.createElement("span");
-      span.className = "overlay-char";
-      span.textContent = char === " " ? "\u00A0" : char;
-      span.style.animationDelay = `${i * 15}ms`;
-      overlayText.appendChild(span);
+  const resolveTheme = (mode) => {
+    if (mode === "system") {
+      return mediaQuery.matches ? "light" : "dark";
+    }
+
+    return mode === "light" ? "light" : "dark";
+  };
+
+  const applyTheme = (mode) => {
+    const resolved = resolveTheme(mode);
+    document.body.setAttribute("data-theme", resolved);
+    document.body.setAttribute("data-theme-mode", mode);
+  };
+
+  const getStoredThemeMode = () => {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "dark" || stored === "light" || stored === "system") {
+      return stored;
+    }
+
+    return "dark";
+  };
+
+  const setThemeMode = (mode) => {
+    localStorage.setItem(THEME_KEY, mode);
+    applyTheme(mode);
+
+    themeButtons.forEach((button) => {
+      const isActive = button.getAttribute("data-theme-value") === mode;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  };
+
+  const initialThemeMode = getStoredThemeMode();
+  applyTheme(initialThemeMode);
+
+  if (themeButtons.length) {
+    setThemeMode(initialThemeMode);
+
+    themeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const nextMode = button.getAttribute("data-theme-value");
+        if (!nextMode) return;
+        setThemeMode(nextMode);
+      });
     });
   }
-  wrapper.addEventListener("mouseenter", () => {
-    wrapper.classList.add("hovering");
-  });
-  wrapper.addEventListener("mouseleave", () => {
-    wrapper.classList.remove("hovering");
-  });
-});
 
-// this block uses IntersectionObserver to auto-play/pause preview videos when in/out of view
-const previewObserver = new IntersectionObserver(
-  (entries) => {
-    entries.forEach((entry) => {
-      const video = entry.target.querySelector("video");
+  mediaQuery.addEventListener("change", () => {
+    if (getStoredThemeMode() === "system") {
+      applyTheme("system");
+    }
+  });
+
+  const escapeHtml = (value) =>
+    String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+
+  const buildPortfolioItem = (entry, previewSrc, hdSrc) => `
+    <div class="video-item">
+      <div
+        class="video-wrapper"
+        data-title="${escapeHtml(entry.title)}"
+        data-fullhd="${escapeHtml(hdSrc)}"
+        data-brand="${escapeHtml(entry.brand)}"
+        data-description="${escapeHtml(entry.description)}"
+        data-review="${escapeHtml(entry.review)}"
+        data-rating="${escapeHtml(entry.rating)}"
+      >
+        <video src="${escapeHtml(previewSrc)}" muted autoplay loop playsinline preload="metadata"></video>
+        <div class="hover-overlay">
+          <span class="overlay-text"></span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const hydratePortfolioGridFromStaticData = async () => {
+    const grid = document.querySelector("#portfolio .video-grid");
+    if (!grid) return;
+
+    try {
+      let entries = Array.isArray(window.__PORTFOLIO_VIDEOS__)
+        ? window.__PORTFOLIO_VIDEOS__
+        : [];
+
+      if (entries.length === 0) {
+        const response = await fetch("data/videos.json");
+        if (response.ok) {
+          const body = await response.json();
+          entries = Array.isArray(body) ? body : [];
+        }
+      }
+
+      const validEntries = entries.filter(
+        (item) => item.previewUrl && item.hdUrl
+      );
+
+      if (!validEntries.length) return;
+
+      grid.innerHTML = validEntries
+        .map((item) => buildPortfolioItem(item, item.previewUrl, item.hdUrl))
+        .join("");
+    } catch {
+      // Keep default hardcoded markup if static data loading fails.
+    }
+  };
+
+  await hydratePortfolioGridFromStaticData();
+
+  document.addEventListener("contextmenu", (event) => event.preventDefault());
+
+  const applyVideoProtection = (video) => {
+    if (!(video instanceof HTMLVideoElement)) return;
+
+    video.setAttribute("controlslist", "nodownload noplaybackrate noremoteplayback");
+    video.setAttribute("disablepictureinpicture", "");
+    video.setAttribute("disableremoteplayback", "");
+  };
+
+  const hideIdmOverlay = (root = document) => {
+    const selectors = [
+      "#idm_download",
+      ".idm_download",
+      '[title*="Download this video"]',
+      '[aria-label*="Download this video"]',
+    ];
+
+    root.querySelectorAll(selectors.join(",")).forEach((node) => {
+      node.style.setProperty("display", "none", "important");
+      node.style.setProperty("visibility", "hidden", "important");
+      node.style.setProperty("pointer-events", "none", "important");
+    });
+  };
+
+  document.querySelectorAll("video").forEach((video) => {
+    applyVideoProtection(video);
+  });
+
+  const protectionObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) return;
+
+        if (node.matches("video")) applyVideoProtection(node);
+        node.querySelectorAll?.("video").forEach((video) => applyVideoProtection(video));
+      });
+    });
+
+    hideIdmOverlay();
+  });
+
+  protectionObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
+  hideIdmOverlay();
+
+  document.querySelectorAll(".video-wrapper").forEach((wrapper) => {
+    const overlayText = wrapper.querySelector(".overlay-text");
+    const title = wrapper.getAttribute("data-title");
+
+    if (overlayText && title) {
+      overlayText.innerHTML = "";
+      [...title].forEach((char, index) => {
+        const span = document.createElement("span");
+        span.className = "overlay-char";
+        span.textContent = char === " " ? "\u00A0" : char;
+        span.style.animationDelay = `${index * 15}ms`;
+        overlayText.appendChild(span);
+      });
+    }
+
+    wrapper.addEventListener("mouseenter", () => {
+      wrapper.classList.add("hovering");
+    });
+
+    wrapper.addEventListener("mouseleave", () => {
+      wrapper.classList.remove("hovering");
+    });
+  });
+
+  const previewObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        const video = entry.target.querySelector("video");
+        if (!video) return;
+
+        if (document.body.classList.contains("modal-open")) {
+          video.pause();
+          return;
+        }
+
+        if (entry.isIntersecting) {
+          video.play().catch(() => {});
+        } else {
+          video.pause();
+        }
+      });
+    },
+    { threshold: 0.3 }
+  );
+
+  document.querySelectorAll(".video-wrapper").forEach((wrapper) => {
+    if (wrapper.querySelector("video")) {
+      previewObserver.observe(wrapper);
+    }
+  });
+
+  const pauseAllPreviewVideos = () => {
+    document.querySelectorAll(".video-wrapper video").forEach((video) => {
+      video.pause();
+    });
+  };
+
+  const resumeVisiblePreviewVideos = () => {
+    if (document.body.classList.contains("modal-open")) return;
+
+    document.querySelectorAll(".video-wrapper").forEach((wrapper) => {
+      const video = wrapper.querySelector("video");
       if (!video) return;
-      if (entry.isIntersecting) {
+
+      const rect = wrapper.getBoundingClientRect();
+      const visibleHeight = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+      const threshold = rect.height * 0.3;
+
+      if (visibleHeight >= threshold) {
         video.play().catch(() => {});
       } else {
         video.pause();
       }
     });
-  },
-  {
-    threshold: 0.3,
-  }
-);
+  };
 
-// this block attaches the observer to each video preview wrapper
-document.querySelectorAll(".video-wrapper").forEach((wrapper) => {
-  const video = wrapper.querySelector("video");
-  if (video && wrapper !== document.getElementById("videoModal")) {
-    previewObserver.observe(wrapper);
-  }
-});
+  const nav = document.getElementById("nav");
+  const mainContainer = document.getElementById("main");
+  const navLinks = nav
+    ? [...nav.querySelectorAll('a[href^="#"]')]
+    : [];
 
-// this block sets up the shorts carousel variables and navigation buttons
-const track = document.querySelector(".shorts-track");
-const prevBtn = document.getElementById("prevBtn");
-const nextBtn = document.getElementById("nextBtn");
+  const getNavAlignmentOffset = () => {
+    if (!nav) return 0;
+    const navStyle = window.getComputedStyle(nav);
+    if (navStyle.display === "none") return 0;
 
-let shorts = Array.from(document.querySelectorAll(".shorts-video"));
+    const navRect = nav.getBoundingClientRect();
+    return navRect.top + navRect.height / 2;
+  };
 
-const visibleCount = 3;
-const cloneCount = visibleCount;
-let shortsIndex = cloneCount;
-let isMutedByUser = false; // start false → first reel will have sound
-let isBusy = false;
-let isShortsSectionVisible = false;
+  const setActiveNavLink = (targetId) => {
+    navLinks.forEach((link) => {
+      link.classList.toggle("active", link.getAttribute("href") === `#${targetId}`);
+    });
+  };
 
-// this block clones slides at the start and end for infinite carousel looping
-function cloneSlides() {
-  const originals = Array.from(document.querySelectorAll(".shorts-video"));
-  for (let i = 0; i < cloneCount; i++) {
-    const first = originals[i].cloneNode(true);
-    const last = originals[originals.length - 1 - i].cloneNode(true);
-    first.classList.add("clone");
-    last.classList.add("clone");
-    track.appendChild(first);
-    track.insertBefore(last, track.firstChild);
-  }
-  shorts = Array.from(document.querySelectorAll(".shorts-video"));
-}
+  const navSections = navLinks
+    .map((link) => {
+      const selector = link.getAttribute("href");
+      if (!selector) return null;
+      return document.querySelector(selector);
+    })
+    .filter(Boolean);
 
-// this block updates the shorts carousel position and controls, and handles video play state
-function updateShortsCarousel(skipTransition = false) {
-  const container = document.querySelector(".shorts-viewport");
-  const centerSlide = shorts[shortsIndex];
-  const slideWidth = centerSlide.offsetWidth + 20;
-  const offset =
-    slideWidth * shortsIndex -
-    (container.offsetWidth / 2 - centerSlide.offsetWidth / 2);
-  track.style.transition = skipTransition
-    ? "none"
-    : "transform 0.4s ease-in-out";
-  track.style.transform = `translateX(-${offset}px)`;
-  shorts.forEach((slide, i) => {
-    const video = slide.querySelector("video");
-    const oldControls = slide.querySelector(".shorts-controls");
-    if (oldControls) oldControls.remove();
-    if (!video) return;
-    if (i === shortsIndex) {
-      slide.classList.add("active");
+  const getSectionTopForAlignment = (section) => {
+    if (!section) return 0;
 
-      // Unmute only if user hasn’t muted manually
-      video.muted = isMutedByUser;
-      video.volume = Math.min(0.4, video.volume); // Cap volume at 70%
-
-      if (isShortsSectionVisible) {
-        if (video.paused && video.currentTime < video.duration) {
-          video.play().catch(() => {});
-        }
-      }
-
-      // 👇 Continue to create controls (as your current code does)
-      const controlDiv = document.createElement("div");
-      controlDiv.className = "shorts-controls";
-
-      const playBtn = document.createElement("button");
-      playBtn.className = "play-toggle";
-      playBtn.setAttribute("aria-label", "Play/Pause");
-
-      const playIcon = document.createElement("i");
-      playIcon.className = video.paused
-        ? "bi bi-play-fill"
-        : "bi bi-pause-fill";
-      playBtn.appendChild(playIcon);
-      controlDiv.appendChild(playBtn);
-
-      const muteBtn = document.createElement("button");
-      muteBtn.className = "mute-toggle";
-      muteBtn.setAttribute("aria-label", "Mute/Unmute");
-
-      const muteIcon = document.createElement("i");
-      muteIcon.className = video.muted
-        ? "bi bi-volume-mute-fill"
-        : "bi bi-volume-up-fill";
-      muteBtn.appendChild(muteIcon);
-      controlDiv.appendChild(muteBtn);
-      slide.appendChild(controlDiv);
-    } else {
-      slide.classList.remove("active");
-      video.pause();
-      video.currentTime = 0;
-      video.muted = true;
+    if (section.id === "intro" && mainContainer) {
+      return mainContainer.getBoundingClientRect().top + window.scrollY;
     }
+
+    return section.getBoundingClientRect().top + window.scrollY;
+  };
+
+  const updateActiveSectionFromScroll = () => {
+    if (navSections.length === 0) return;
+
+    const marker = window.scrollY + getNavAlignmentOffset() + 8;
+    let currentSection = navSections[0];
+
+    navSections.forEach((section) => {
+      if (getSectionTopForAlignment(section) <= marker) currentSection = section;
+    });
+
+    if (currentSection?.id) setActiveNavLink(currentSection.id);
+  };
+
+  navLinks.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const targetSelector = link.getAttribute("href");
+      if (!targetSelector || targetSelector.charAt(0) !== "#") return;
+
+      const target = document.querySelector(targetSelector);
+      if (!target) return;
+
+      event.preventDefault();
+      const top = getSectionTopForAlignment(target) - getNavAlignmentOffset();
+
+      setActiveNavLink(target.id);
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      history.pushState(null, "", targetSelector);
+    });
   });
-}
 
-// this block corrects the carousel index for infinite looping
-function correctShortsLoop() {
-  const total = shorts.length;
-  if (shortsIndex >= total - cloneCount) {
-    shortsIndex = cloneCount;
-    disableShortsTransitionTemporarily();
-  }
-  if (shortsIndex < cloneCount) {
-    shortsIndex = total - cloneCount - 1;
-    disableShortsTransitionTemporarily();
-  }
-}
+  const alignNavOnInitialLoad = () => {
+    if (navSections.length === 0) return;
 
-// this block disables carousel transition briefly for seamless looping
-function disableShortsTransitionTemporarily() {
-  requestAnimationFrame(() => {
-    track.style.transition = "none";
-    updateShortsCarousel(true);
+    const hash = window.location.hash;
+    const hashTarget = hash ? document.querySelector(hash) : null;
+    const target =
+      hashTarget && navSections.includes(hashTarget)
+        ? hashTarget
+        : navSections[0];
+
+    if (!target) return;
+
+    const alignedTop = Math.max(
+      0,
+      getSectionTopForAlignment(target) - getNavAlignmentOffset()
+    );
+
+    if (Math.abs(window.scrollY - alignedTop) > 1) {
+      window.scrollTo({ top: alignedTop, behavior: "auto" });
+    }
+
+    if (target.id) setActiveNavLink(target.id);
+  };
+
+  window.addEventListener("load", () => {
+    setTimeout(() => document.body.classList.remove("is-preload"), 100);
     requestAnimationFrame(() => {
-      track.style.transition = "transform 0.4s ease-in-out";
-    });
-  });
-}
-
-// this block debounces carousel navigation to prevent rapid clicks
-function debounce(fn) {
-  if (isBusy) return;
-  isBusy = true;
-  fn();
-  setTimeout(() => (isBusy = false), 420);
-}
-
-// this block enables auto-advance to next short when a video ends
-function initAutoSlideOnEnd() {
-  shorts.forEach((slide) => {
-    const video = slide.querySelector("video");
-    if (!video) return;
-    video.onended = () => {
-      if (!slide.classList.contains("active")) return;
-      if (!isShortsSectionVisible) return;
-      shortsIndex++;
-      updateShortsCarousel(false);
-      setTimeout(correctShortsLoop, 410);
-    };
-  });
-}
-
-// this block initializes the shorts carousel and auto-slide functionality
-cloneSlides();
-shorts = Array.from(document.querySelectorAll(".shorts-video"));
-initAutoSlideOnEnd();
-
-// this block handles next and previous button clicks for the shorts carousel
-nextBtn.addEventListener("click", () => {
-  setTimeout(() => {
-    debounce(() => {
-      shortsIndex++;
-      updateShortsCarousel(false);
-      setTimeout(correctShortsLoop, 410);
-    });
-  }, 50);
-});
-
-prevBtn.addEventListener("click", () => {
-  debounce(() => {
-    shortsIndex--;
-    updateShortsCarousel(false);
-    setTimeout(correctShortsLoop, 410);
-  });
-});
-
-// this block observes the shorts section to pause videos when out of view
-const shortsSection = document.querySelector("#second.short-videos");
-
-const shortsSectionObserver = new IntersectionObserver(
-  (entries) => {
-    entries.forEach((entry) => {
-      isShortsSectionVisible = entry.isIntersecting;
-      if (!isShortsSectionVisible) {
-        document
-          .querySelectorAll(".shorts-video video")
-          .forEach((video) => video.pause());
-      } else {
-        updateShortsCarousel(false);
-      }
-    });
-  },
-  {
-    threshold: 0.80, // Trigger when 55% of the section is visible
-  }
-);
-
-if (shortsSection) shortsSectionObserver.observe(shortsSection);
-
-// this block handles play/pause and mute/unmute button clicks for shorts videos
-document.addEventListener("click", function (e) {
-  const playBtn = e.target.closest(".play-toggle");
-  if (playBtn) {
-    const slide = playBtn.closest(".shorts-video");
-    const video = slide?.querySelector("video");
-    const icon = playBtn.querySelector("i");
-    if (video && icon) {
-      if (video.paused) {
-        video.play();
-        icon.className = "bi bi-pause-fill";
-      } else {
-        video.pause();
-        icon.className = "bi bi-play-fill";
-      }
-    }
-  }
-  const muteBtn = e.target.closest(".mute-toggle");
-  if (muteBtn) {
-    const slide = muteBtn.closest(".shorts-video");
-    const video = slide?.querySelector("video");
-    const icon = muteBtn.querySelector("i");
-    if (video && icon) {
-      video.muted = !video.muted;
-      icon.className = video.muted
-        ? "bi bi-volume-mute-fill"
-        : "bi bi-volume-up-fill";
-
-      // ➕ Add this line:
-      isMutedByUser = video.muted; // Update global sound preference
-    }
-  }
-});
-
-// this block handles responsive breakpoints and navigation for the HTML5 UP Stellar theme
-(function ($) {
-  const $window = $(window),
-    $body = $("body"),
-    $main = $("#main");
-  breakpoints({
-    xlarge: ["1281px", "1680px"],
-    large: ["981px", "1280px"],
-    medium: ["737px", "980px"],
-    small: ["481px", "736px"],
-    xsmall: [null, "480px"],
-  });
-  breakpoints.on(">medium", () =>
-    $body.removeClass("is-medium is-small is-xsmall is-xxsmall")
-  );
-  breakpoints.on("<=medium", () =>
-    $body.addClass("is-medium").removeClass("is-small is-xsmall is-xxsmall")
-  );
-  breakpoints.on("<=small", () =>
-    $body.addClass("is-small").removeClass("is-medium is-xsmall is-xxsmall")
-  );
-  breakpoints.on("<=xsmall", () =>
-    $body.addClass("is-xsmall").removeClass("is-medium is-small is-xxsmall")
-  );
-  breakpoints.on("<=480px", () => $body.addClass("is-xxsmall"));
-  breakpoints.on(">xsmall", () => $body.removeClass("is-xsmall is-xxsmall"));
-  breakpoints.on(">small", () =>
-    $body.removeClass("is-small is-xsmall is-xxsmall")
-  );
-  $window.on("load", () => {
-    setTimeout(() => $body.removeClass("is-preload"), 100);
-  });
-  const $nav = $("#nav");
-  const $navLinks = $nav.find("a");
-  if ($nav.length > 0) {
-    $main.scrollex({
-      mode: "top",
-      enter: () => $nav.addClass("alt"),
-      leave: () => $nav.removeClass("alt"),
-    });
-    $navLinks
-      .scrolly({
-        speed: 1000,
-        offset: () => $nav.height(),
-      })
-      .on("click", function () {
-        const $this = $(this);
-        if ($this.attr("href").charAt(0) !== "#") return;
-        $navLinks.removeClass("active active-locked");
-        $this.addClass("active active-locked");
-      })
-      .each(function () {
-        const $this = $(this),
-          id = $this.attr("href"),
-          $section = $(id);
-        if ($section.length < 1) return;
-        $section.scrollex({
-          mode: "middle",
-          initialize: () => {
-            if (browser.canUse("transition")) $section.addClass("inactive");
-          },
-          enter: () => {
-            $section.removeClass("inactive");
-            if ($navLinks.filter(".active-locked").length === 0) {
-              $navLinks.removeClass("active");
-              $this.addClass("active");
-            } else if ($this.hasClass("active-locked")) {
-              $this.removeClass("active-locked");
-            }
-          },
-        });
+      requestAnimationFrame(() => {
+        alignNavOnInitialLoad();
+        updateActiveSectionFromScroll();
       });
-  }
-  $(".scrolly").scrolly({
-    speed: 1000,
+    });
   });
-})(jQuery);
 
-// this block opens the modal and plays the high-quality video
-document.querySelectorAll(".video-wrapper").forEach((wrapper) => {
-  wrapper.addEventListener("click", () => {
+  window.addEventListener("scroll", updateActiveSectionFromScroll, {
+    passive: true,
+  });
+  window.addEventListener("resize", updateActiveSectionFromScroll);
+  updateActiveSectionFromScroll();
+
+  document.querySelectorAll(".video-wrapper").forEach((wrapper) => {
+    wrapper.addEventListener("click", () => {
+      const modal = document.getElementById("videoModal");
+      const modalVideo = document.getElementById("modalVideo");
+      const modalTitle = document.getElementById("modalTitle");
+      const modalBrand = document.getElementById("modalBrand");
+      const modalDescription = document.getElementById("modalDescription");
+      const modalReview = document.getElementById("modalReview");
+      const modalStars = document.getElementById("modalStars");
+      const fullHdSrc = wrapper.getAttribute("data-fullhd");
+      const title = wrapper.getAttribute("data-title") || "Project Video";
+      const brand = wrapper.getAttribute("data-brand") || "Confidential Brand";
+      const description =
+        wrapper.getAttribute("data-description") ||
+        "Premium cinematic 3D animation crafted with a modern visual style.";
+      const review =
+        wrapper.getAttribute("data-review") ||
+        "Kashem delivered a very good result with professional quality.";
+      const rating = Math.max(
+        1,
+        Math.min(5, Number.parseInt(wrapper.getAttribute("data-rating") || "5", 10))
+      );
+
+      if (!modal || !modalVideo || !fullHdSrc) return;
+
+      modalVideo.src = fullHdSrc;
+      applyVideoProtection(modalVideo);
+      modal.style.display = "flex";
+      if (modalTitle) modalTitle.textContent = title;
+      if (modalBrand) modalBrand.textContent = brand;
+      if (modalDescription) modalDescription.textContent = description;
+      if (modalReview) modalReview.textContent = review;
+
+      if (modalStars) {
+        modalStars.innerHTML = "";
+        for (let i = 1; i <= 5; i += 1) {
+          const star = document.createElement("span");
+          star.className = `star${i > rating ? " inactive" : ""}`;
+          star.textContent = "\u2605";
+          modalStars.appendChild(star);
+        }
+        modalStars.setAttribute("aria-label", `Client rating: ${rating} out of 5`);
+      }
+
+      pauseAllPreviewVideos();
+
+      document.body.classList.add("modal-open");
+    });
+  });
+
+  const closeButton = document.querySelector(".close-btn");
+
+  if (closeButton) {
+    closeButton.addEventListener("click", () => {
+      const modal = document.getElementById("videoModal");
+      const modalVideo = document.getElementById("modalVideo");
+
+      if (!modal || !modalVideo) return;
+
+      modal.style.display = "none";
+      modalVideo.pause();
+      modalVideo.src = "";
+
+      document.body.classList.remove("modal-open");
+      resumeVisiblePreviewVideos();
+    });
+  }
+
+  window.addEventListener("click", (event) => {
     const modal = document.getElementById("videoModal");
     const modalVideo = document.getElementById("modalVideo");
-    const fullHdSrc = wrapper.getAttribute("data-fullhd");
-    if (fullHdSrc) {
-      modalVideo.src = fullHdSrc;
-      modal.style.display = "flex";
 
-      // Pause all background videos
-      document.querySelectorAll(".video-wrapper video").forEach((video) => {
-        video.pause();
-      });
+    if (!modal || !modalVideo || event.target !== modal) return;
 
-      // Disable scrolling
-      document.body.classList.add("modal-open");
-    }
-  });
-});
-
-document.querySelector(".close-btn").addEventListener("click", () => {
-  const modal = document.getElementById("videoModal");
-  const modalVideo = document.getElementById("modalVideo");
-  modal.style.display = "none";
-  modalVideo.pause();
-  modalVideo.src = "";
-
-  // Resume background videos
-  document.querySelectorAll(".video-wrapper video").forEach((video) => {
-    video.play().catch(() => {});
-  });
-
-  // Enable scrolling
-  document.body.classList.remove("modal-open");
-});
-
-window.addEventListener("click", (event) => {
-  const modal = document.getElementById("videoModal");
-  if (event.target === modal) {
-    const modalVideo = document.getElementById("modalVideo");
     modal.style.display = "none";
     modalVideo.pause();
     modalVideo.src = "";
 
-    // Resume background videos
-    document.querySelectorAll(".video-wrapper video").forEach((video) => {
-      video.play().catch(() => {});
-    });
-
-    // Enable scrolling
     document.body.classList.remove("modal-open");
-  }
-});
-
-  document.addEventListener("DOMContentLoaded", () => {
-    const track = document.querySelector(".carousel-track");
-    const videoHolders = document.querySelectorAll(".video-holder");
-    const prevBtn = document.querySelector(".bi-caret-left-fill").closest(".lnav");
-    const nextBtn = document.querySelector(".bi-caret-right-fill").closest(".lnav");
-    let currentIndex = 0;
-
-    const updateCarousel = () => {
-      const offset = -600 * currentIndex;
-      track.style.transform = `translateX(${offset}px)`;
-
-      // Pause all videos
-      videoHolders.forEach((holder, index) => {
-        const iframe = holder.querySelector("iframe");
-        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-      });
-
-      // Play the current video
-      const activeIframe = videoHolders[currentIndex].querySelector("iframe");
-      activeIframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-    };
-
-    prevBtn.addEventListener("click", () => {
-      currentIndex = (currentIndex - 1 + videoHolders.length) % videoHolders.length;
-      updateCarousel();
-    });
-
-    nextBtn.addEventListener("click", () => {
-      currentIndex = (currentIndex + 1) % videoHolders.length;
-      updateCarousel();
-    });
-
-    // Enable API control by adding ?enablejsapi=1 (already done in the iframe links!)
-    updateCarousel();
+    resumeVisiblePreviewVideos();
   });
-
-  // Setup YouTube autoplay when visible
-const ytObserver = new IntersectionObserver((entries) => {
-  entries.forEach((entry) => {
-    const iframe = entry.target.querySelector("iframe");
-    if (!iframe) return;
-
-    // Try to play/pause via YouTube postMessage API
-    if (entry.isIntersecting) {
-      iframe.contentWindow.postMessage(
-        '{"event":"command","func":"playVideo","args":""}', '*'
-      );
-    } else {
-      iframe.contentWindow.postMessage(
-        '{"event":"command","func":"pauseVideo","args":""}', '*'
-      );
-    }
-  });
-}, {
-  threshold: 0.8, // Adjust to control when "visible enough"
-});
-
-// Apply to each video-holder (skip if not YouTube iframe)
-document.querySelectorAll('.video-holder').forEach(holder => {
-  if (holder.querySelector('iframe')) {
-    ytObserver.observe(holder);
-  }
-});
+})();
