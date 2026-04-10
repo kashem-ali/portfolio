@@ -632,6 +632,35 @@ a {
   z-index: 3;
 }
 
+.share-btn {
+  position: absolute;
+  top: 1.25rem;
+  right: 3.8rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 24, 40, 0.8);
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  z-index: 3;
+  transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+
+.share-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.share-btn.copied {
+  background: rgba(79, 209, 197, 0.32);
+  border-color: rgba(79, 209, 197, 0.7);
+  color: #d8fffb;
+}
+
 .close-btn:hover {
   background: rgba(255, 255, 255, 0.22);
 }
@@ -836,6 +865,22 @@ body[data-theme="light"] .close-btn {
   border: 1px solid rgba(21, 71, 141, 0.2);
 }
 
+body[data-theme="light"] .share-btn {
+  background: rgba(255, 255, 255, 0.92);
+  color: #17345f;
+  border: 1px solid rgba(21, 71, 141, 0.2);
+}
+
+body[data-theme="light"] .share-btn:hover {
+  background: #f2f8ff;
+}
+
+body[data-theme="light"] .share-btn.copied {
+  background: rgba(26, 184, 169, 0.2);
+  border-color: rgba(26, 184, 169, 0.5);
+  color: #0f4f4a;
+}
+
 body[data-theme="light"] .close-btn:hover {
   background: #f2f8ff;
 }
@@ -924,6 +969,10 @@ body[data-theme="light"] .close-btn:hover {
 
   .hover-overlay {
     padding: 0.75rem;
+  }
+
+  .share-btn {
+    right: 3.55rem;
   }
 }
 

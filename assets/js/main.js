@@ -66,10 +66,37 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
+  const VIDEO_QUERY_PARAM = "video";
+
+  const normalizeVideoId = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
+
+  const deriveVideoId = (entry, hdSrc, title) => {
+    const explicitId = normalizeVideoId(entry?.id);
+    if (explicitId) return explicitId;
+
+    const sourceName = String(hdSrc || "")
+      .split("/")
+      .pop()
+      ?.replace(/\.[a-z0-9]+$/i, "");
+    const srcId = normalizeVideoId(sourceName);
+    if (srcId) return srcId;
+
+    const titleId = normalizeVideoId(title);
+    if (titleId) return titleId;
+
+    return "";
+  };
+
   const buildPortfolioItem = (entry, previewSrc, hdSrc) => `
     <div class="video-item">
       <div
         class="video-wrapper"
+        data-video-id="${escapeHtml(deriveVideoId(entry, hdSrc, entry.title))}"
         data-title="${escapeHtml(entry.title)}"
         data-fullhd="${escapeHtml(hdSrc)}"
         data-brand="${escapeHtml(entry.brand)}"
@@ -117,6 +144,33 @@
   };
 
   await hydratePortfolioGridFromStaticData();
+
+  const ensureVideoIds = () => {
+    const usedIds = new Set();
+
+    document.querySelectorAll(".video-wrapper").forEach((wrapper, index) => {
+      const existingId = normalizeVideoId(wrapper.getAttribute("data-video-id"));
+      const fallbackId = deriveVideoId(
+        null,
+        wrapper.getAttribute("data-fullhd"),
+        wrapper.getAttribute("data-title")
+      ) || `video-${index + 1}`;
+
+      const baseId = existingId || fallbackId;
+      let uniqueId = baseId;
+      let suffix = 2;
+
+      while (!uniqueId || usedIds.has(uniqueId)) {
+        uniqueId = `${baseId}-${suffix}`;
+        suffix += 1;
+      }
+
+      usedIds.add(uniqueId);
+      wrapper.setAttribute("data-video-id", uniqueId);
+    });
+  };
+
+  ensureVideoIds();
 
   document.addEventListener("contextmenu", (event) => event.preventDefault());
 
@@ -352,79 +406,129 @@
   window.addEventListener("resize", updateActiveSectionFromScroll);
   updateActiveSectionFromScroll();
 
-  document.querySelectorAll(".video-wrapper").forEach((wrapper) => {
-    wrapper.addEventListener("click", () => {
-      const modal = document.getElementById("videoModal");
-      const modalVideo = document.getElementById("modalVideo");
-      const modalTitle = document.getElementById("modalTitle");
-      const modalBrand = document.getElementById("modalBrand");
-      const modalDescription = document.getElementById("modalDescription");
-      const modalReview = document.getElementById("modalReview");
-      const modalStars = document.getElementById("modalStars");
-      const fullHdSrc = wrapper.getAttribute("data-fullhd");
-      const title = wrapper.getAttribute("data-title") || "Project Video";
-      const brand = wrapper.getAttribute("data-brand") || "Confidential Brand";
-      const description =
-        wrapper.getAttribute("data-description") ||
-        "Premium cinematic 3D animation crafted with a modern visual style.";
-      const review =
-        wrapper.getAttribute("data-review") ||
-        "Kashem delivered a very good result with professional quality.";
-      const rating = Math.max(
-        1,
-        Math.min(5, Number.parseInt(wrapper.getAttribute("data-rating") || "5", 10))
-      );
+  const modal = document.getElementById("videoModal");
+  const modalVideo = document.getElementById("modalVideo");
+  const modalTitle = document.getElementById("modalTitle");
+  const modalBrand = document.getElementById("modalBrand");
+  const modalDescription = document.getElementById("modalDescription");
+  const modalReview = document.getElementById("modalReview");
+  const modalStars = document.getElementById("modalStars");
+  const shareModalLinkButton = document.getElementById("shareModalLink");
+  let currentModalVideoId = "";
 
-      if (!modal || !modalVideo || !fullHdSrc) return;
+  const getVideoIdFromLocation = () => {
+    const params = new URLSearchParams(window.location.search);
+    return normalizeVideoId(params.get(VIDEO_QUERY_PARAM));
+  };
 
-      modalVideo.src = fullHdSrc;
-      applyVideoProtection(modalVideo);
-      modal.style.display = "flex";
-      if (modalTitle) modalTitle.textContent = title;
-      if (modalBrand) modalBrand.textContent = brand;
-      if (modalDescription) modalDescription.textContent = description;
-      if (modalReview) modalReview.textContent = review;
+  const buildUrlWithVideo = (videoId) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set(VIDEO_QUERY_PARAM, videoId);
+    return `${url.pathname}${url.search}${url.hash}`;
+  };
 
-      if (modalStars) {
-        modalStars.innerHTML = "";
-        for (let i = 1; i <= 5; i += 1) {
-          const star = document.createElement("span");
-          star.className = `star${i > rating ? " inactive" : ""}`;
-          star.textContent = "\u2605";
-          modalStars.appendChild(star);
-        }
-        modalStars.setAttribute("aria-label", `Client rating: ${rating} out of 5`);
+  const buildUrlWithoutVideo = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete(VIDEO_QUERY_PARAM);
+    return `${url.pathname}${url.search}${url.hash}`;
+  };
+
+  const buildAbsoluteShareUrl = (videoId) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set(VIDEO_QUERY_PARAM, videoId);
+    return url.toString();
+  };
+
+  const copyTextToClipboard = async (text) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
+  };
+
+  const findWrapperByVideoId = (videoId) => {
+    if (!videoId) return null;
+
+    return (
+      [...document.querySelectorAll(".video-wrapper")].find(
+        (wrapper) => normalizeVideoId(wrapper.getAttribute("data-video-id")) === videoId
+      ) || null
+    );
+  };
+
+  const showModalForWrapper = (wrapper, { syncUrl = false, historyMode = "push" } = {}) => {
+    const fullHdSrc = wrapper.getAttribute("data-fullhd");
+    const title = wrapper.getAttribute("data-title") || "Project Video";
+    const brand = wrapper.getAttribute("data-brand") || "Confidential Brand";
+    const description =
+      wrapper.getAttribute("data-description") ||
+      "Premium cinematic 3D animation crafted with a modern visual style.";
+    const review =
+      wrapper.getAttribute("data-review") ||
+      "Kashem delivered a very good result with professional quality.";
+    const rating = Math.max(
+      1,
+      Math.min(5, Number.parseInt(wrapper.getAttribute("data-rating") || "5", 10))
+    );
+    const videoId = normalizeVideoId(wrapper.getAttribute("data-video-id"));
+
+    if (!modal || !modalVideo || !fullHdSrc || !videoId) return;
+
+    currentModalVideoId = videoId;
+
+    modalVideo.src = fullHdSrc;
+    applyVideoProtection(modalVideo);
+    modal.style.display = "flex";
+    if (modalTitle) modalTitle.textContent = title;
+    if (modalBrand) modalBrand.textContent = brand;
+    if (modalDescription) modalDescription.textContent = description;
+    if (modalReview) modalReview.textContent = review;
+
+    if (modalStars) {
+      modalStars.innerHTML = "";
+      for (let i = 1; i <= 5; i += 1) {
+        const star = document.createElement("span");
+        star.className = `star${i > rating ? " inactive" : ""}`;
+        star.textContent = "\u2605";
+        modalStars.appendChild(star);
       }
+      modalStars.setAttribute("aria-label", `Client rating: ${rating} out of 5`);
+    }
 
-      pauseAllPreviewVideos();
+    pauseAllPreviewVideos();
+    document.body.classList.add("modal-open");
 
-      document.body.classList.add("modal-open");
-    });
-  });
+    if (syncUrl) {
+      const nextUrl = buildUrlWithVideo(videoId);
+      const nextState = { ...(history.state || {}), modal: true, videoId };
 
-  const closeButton = document.querySelector(".close-btn");
+      if (historyMode === "replace") {
+        history.replaceState(nextState, "", nextUrl);
+      } else {
+        history.pushState(nextState, "", nextUrl);
+      }
+    }
+  };
 
-  if (closeButton) {
-    closeButton.addEventListener("click", () => {
-      const modal = document.getElementById("videoModal");
-      const modalVideo = document.getElementById("modalVideo");
+  const hideModal = ({ syncUrl = false } = {}) => {
+    if (!modal || !modalVideo) return;
 
-      if (!modal || !modalVideo) return;
-
-      modal.style.display = "none";
-      modalVideo.pause();
-      modalVideo.src = "";
-
-      document.body.classList.remove("modal-open");
-      resumeVisiblePreviewVideos();
-    });
-  }
-
-  window.addEventListener("click", (event) => {
-    const modal = document.getElementById("videoModal");
-    const modalVideo = document.getElementById("modalVideo");
-
-    if (!modal || !modalVideo || event.target !== modal) return;
+    currentModalVideoId = "";
+    if (shareModalLinkButton) {
+      shareModalLinkButton.classList.remove("copied");
+      shareModalLinkButton.title = "Copy share link";
+      shareModalLinkButton.setAttribute("aria-label", "Copy share link");
+    }
 
     modal.style.display = "none";
     modalVideo.pause();
@@ -432,5 +536,78 @@
 
     document.body.classList.remove("modal-open");
     resumeVisiblePreviewVideos();
+
+    if (!syncUrl) return;
+
+    if (history.state?.modal) {
+      history.back();
+      return;
+    }
+
+    if (getVideoIdFromLocation()) {
+      history.replaceState(history.state, "", buildUrlWithoutVideo());
+    }
+  };
+
+  const syncModalFromUrl = () => {
+    const requestedVideoId = getVideoIdFromLocation();
+
+    if (!requestedVideoId) {
+      hideModal();
+      return;
+    }
+
+    const targetWrapper = findWrapperByVideoId(requestedVideoId);
+    if (!targetWrapper) {
+      hideModal();
+      history.replaceState(history.state, "", buildUrlWithoutVideo());
+      return;
+    }
+
+    showModalForWrapper(targetWrapper);
+  };
+
+  document.querySelectorAll(".video-wrapper").forEach((wrapper) => {
+    wrapper.addEventListener("click", () => {
+      showModalForWrapper(wrapper, { syncUrl: true, historyMode: "push" });
+    });
   });
+
+  const closeButton = document.querySelector(".close-btn");
+
+  if (closeButton) {
+    closeButton.addEventListener("click", () => {
+      hideModal({ syncUrl: true });
+    });
+  }
+
+  if (shareModalLinkButton) {
+    shareModalLinkButton.addEventListener("click", async () => {
+      const videoId = currentModalVideoId || getVideoIdFromLocation();
+      if (!videoId) return;
+
+      try {
+        await copyTextToClipboard(buildAbsoluteShareUrl(videoId));
+        shareModalLinkButton.classList.add("copied");
+        shareModalLinkButton.title = "Copied link";
+        shareModalLinkButton.setAttribute("aria-label", "Copied link");
+        window.setTimeout(() => {
+          shareModalLinkButton.classList.remove("copied");
+          shareModalLinkButton.title = "Copy share link";
+          shareModalLinkButton.setAttribute("aria-label", "Copy share link");
+        }, 1200);
+      } catch {
+        shareModalLinkButton.title = "Unable to copy";
+        shareModalLinkButton.setAttribute("aria-label", "Unable to copy");
+      }
+    });
+  }
+
+  window.addEventListener("click", (event) => {
+    if (!modal || event.target !== modal) return;
+    hideModal({ syncUrl: true });
+  });
+
+  window.addEventListener("popstate", syncModalFromUrl);
+  syncModalFromUrl();
 })();
