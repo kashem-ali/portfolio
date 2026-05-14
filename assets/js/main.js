@@ -101,6 +101,7 @@
         data-fullhd="${escapeHtml(hdSrc)}"
         data-brand="${escapeHtml(entry.brand)}"
         data-description="${escapeHtml(entry.description)}"
+        data-client-name="${escapeHtml(entry.clientName || entry.brand)}"
         data-review="${escapeHtml(entry.review)}"
         data-rating="${escapeHtml(entry.rating)}"
       >
@@ -411,6 +412,7 @@
   const modalTitle = document.getElementById("modalTitle");
   const modalBrand = document.getElementById("modalBrand");
   const modalDescription = document.getElementById("modalDescription");
+  const modalClientName = document.getElementById("modalClientName");
   const modalReview = document.getElementById("modalReview");
   const modalStars = document.getElementById("modalStars");
   const shareModalLinkButton = document.getElementById("shareModalLink");
@@ -473,6 +475,11 @@
     const description =
       wrapper.getAttribute("data-description") ||
       "Premium cinematic 3D animation crafted with a modern visual style.";
+    const clientName =
+      wrapper.getAttribute("data-client-name") ||
+      wrapper.getAttribute("data-client") ||
+      brand ||
+      "Client";
     const review =
       wrapper.getAttribute("data-review") ||
       "Kashem delivered a very good result with professional quality.";
@@ -492,6 +499,7 @@
     if (modalTitle) modalTitle.textContent = title;
     if (modalBrand) modalBrand.textContent = brand;
     if (modalDescription) modalDescription.textContent = description;
+    if (modalClientName) modalClientName.textContent = clientName;
     if (modalReview) modalReview.textContent = review;
 
     if (modalStars) {

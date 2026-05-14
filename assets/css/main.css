@@ -603,6 +603,13 @@ a {
   font-size: 0.95rem;
 }
 
+.review-client {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  color: rgba(237, 243, 255, 0.88);
+  font-weight: 600;
+}
+
 .review-stars {
   display: flex;
   gap: 0.35rem;
